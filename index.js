@@ -6,28 +6,29 @@ const MAX_MOUSE_MOVE_OFFSET = 100;
 
 let lastMousePos = robot.getMousePos();
 let lastActiveTime = Date.now();
-let moveMouseTimeout;
+let moveMouseTimeout = null;
+let maxInactiveTime; 
 
 /**
- * Generates a random mouse movement offset.
- * @returns {number} The random offset for mouse movement.
+ * Generates a random offset for mouse movement.
+ * @returns {number} Random offset for mouse movement.
  */
 function getRandomOffset() {
     return Math.floor(Math.random() * (MAX_MOUSE_MOVE_OFFSET - MIN_MOUSE_MOVE_OFFSET + 1)) + MIN_MOUSE_MOVE_OFFSET;
 }
 
 /**
- * Gets the current time formatted as HH:MM:SS.
- * @returns {string} The current time as a string.
+ * Returns the current time in HH:MM:SS format.
+ * @returns {string} Current time as a string.
  */
 function getCurrentTime() {
     return new Date().toLocaleTimeString();
 }
 
 /**
- * Converts milliseconds to a string formatted as X minutes Y seconds.
- * @param {number} milliseconds - The time in milliseconds.
- * @returns {string} The time formatted as minutes and seconds.
+ * Converts milliseconds to a string format of X minutes Y seconds.
+ * @param {number} milliseconds - Time in milliseconds.
+ * @returns {string} Time in minutes and seconds.
  */
 function formatTime(milliseconds) {
     const totalSeconds = Math.floor(milliseconds / 1000);
@@ -39,7 +40,7 @@ function formatTime(milliseconds) {
 }
 
 /**
- * Moves the mouse cursor.
+ * Moves the mouse cursor to a random position.
  */
 function moveMouse() {
     const mousePos = robot.getMousePos();
@@ -50,74 +51,76 @@ function moveMouse() {
     console.log(`[${getCurrentTime()}] Mouse moved to: (${newX}, ${newY}). Time passed since last move: ${formatTime(Date.now() - lastActiveTime)}.`);
 
     lastActiveTime = Date.now();
+    lastMousePos = { x: newX, y: newY };
+    moveMouseTimeout = null;
 }
 
 /**
- * Checks mouse activity and moves the cursor if no activity is detected within the maximum time limit.
- * @param {number} maxInactiveTime - The maximum inactive time (in milliseconds).
+ * Sets a random timeout to move the mouse within the remaining time until the maxInactiveTime.
  */
-function checkMouseActivity(maxInactiveTime) {
+function setMouseMoveTimeout() {
+    const timeSinceLastActivity = Date.now() - lastActiveTime;
+    const remainingTime = maxInactiveTime - timeSinceLastActivity;
+
+    const randomDelay = Math.random() * remainingTime; // Random delay within the remaining time
+    if (moveMouseTimeout) {
+        clearTimeout(moveMouseTimeout); // Clear the previous timeout if exists
+    }
+    moveMouseTimeout = setTimeout(() => {
+        moveMouse(); // Move the mouse when the random timer expires
+    }, randomDelay);
+
+    console.log(`[${getCurrentTime()}] Random timer set for ${formatTime(randomDelay)}, remaining time: ${formatTime(remainingTime)}.`);
+}
+
+/**
+ * Checks mouse activity and ensures the mouse moves only after the user is inactive for the max time.
+ */
+function checkMouseActivity() {
     const currentMousePos = robot.getMousePos();
     const currentTime = Date.now();
 
     if (currentMousePos.x !== lastMousePos.x || currentMousePos.y !== lastMousePos.y) {
         lastActiveTime = currentTime;
         lastMousePos = currentMousePos;
-        console.log(`[${getCurrentTime()}] Mouse movement detected. Timer reset.`);
-        clearTimeout(moveMouseTimeout); 
-    }
-
-    if (currentTime - lastActiveTime >= maxInactiveTime) {
-        console.log(`[${getCurrentTime()}] Mouse inactive for ${formatTime(currentTime - lastActiveTime)}. Performing action...`);
-        moveMouse();
-    } else {
-        const timeLeft = maxInactiveTime - (currentTime - lastActiveTime);
-        clearTimeout(moveMouseTimeout); 
-        moveMouseTimeout = setTimeout(moveMouse, Math.random() * timeLeft);
+        console.log(`[${getCurrentTime()}] Mouse movement detected. Timer will reset.`);
+        if (moveMouseTimeout) {
+            clearTimeout(moveMouseTimeout); // Reset the timer if user moves the mouse
+            moveMouseTimeout = null;
+        }
+        setMouseMoveTimeout(); // Set a new random movement timer
     }
 }
 
-/**
- * Reads the interval and max time from the terminal, validates input, and starts the script.
- */
 function startScript() {
     const rl = readline.createInterface({
         input: process.stdin,
         output: process.stdout,
     });
 
-    rl.question('Enter the interval for checking mouse activity (in minutes, minimum 1): ', (intervalInput) => {
-        const interval = parseInt(intervalInput, 10);
+    rl.question('Enter maximum time without mouse movement (in minutes, minimum 1): ', (maxTimeInput) => {
+        const maxTime = parseInt(maxTimeInput, 10);
 
-        if (isNaN(interval) || interval < 1) {
-            console.log('Invalid input. Interval must be at least 1 minute.');
+        if (isNaN(maxTime) || maxTime < 1) {
+            console.log('Invalid input. Maximum time must be at least 1 minute.');
             rl.close();
             return;
         }
 
-        rl.question('Enter the maximum time before moving the mouse (in minutes, minimum 2): ', (maxTimeInput) => {
-            const maxTime = parseInt(maxTimeInput, 10);
+        maxInactiveTime = maxTime * 60 * 1000;
 
-            if (isNaN(maxTime) || maxTime < interval + 1) {
-                console.log(`Invalid input. Maximum time must be at least ${interval + 1} minutes.`);
-                rl.close();
-                return;
-            }
+        console.log(`Maximum inactivity time set to ${maxTime} minute(s). A random mouse movement will occur only after inactivity.`);
 
-            const maxInactiveTime = (maxTime - interval) * 60 * 1000;
+        setMouseMoveTimeout(); // Start the first random movement timer
+        setInterval(checkMouseActivity, 1000); // Check mouse activity every second
 
-            console.log(`Max inactive time set to ${maxTime - interval} minutes. Checking every ${interval} minute(s).`);
-
-            setInterval(() => checkMouseActivity(maxInactiveTime), interval * 60 * 1000);
-
-            rl.close();
-        });
+        rl.close();
     });
 }
 
 startScript();
 
 process.on('SIGINT', () => {
-    console.log(`[${getCurrentTime()}] Script stopped. Run "npm start" to start script again`);
+    console.log(`[${getCurrentTime()}] Script stopped. Run "npm start" to start the script again.`);
     process.exit();
 });
